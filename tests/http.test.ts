@@ -168,4 +168,60 @@ describe("HTTP MCP", () => {
     const health = await fetch(`${url}/health`);
     expect(await health.json()).toMatchObject({ ok: true, service: "scope", oauthConfigured: true, billingConfigured: true });
   });
+
+  it("serves the OpenAI domain challenge as plain text and a Continuity-grade privacy page", async () => {
+    const previous = process.env.OPENAI_APPS_CHALLENGE;
+    const options = await deps();
+    const url = await listen(createApp(options));
+    try {
+      delete process.env.OPENAI_APPS_CHALLENGE;
+      const missing = await fetch(`${url}/.well-known/openai-apps-challenge`);
+      expect(missing.status).toBe(404);
+      expect(missing.headers.get("content-type")).toMatch(/text\/plain/);
+      const missingBody = await missing.text();
+      expect(missingBody).toBe("Verification is not configured.");
+      expect(missingBody).not.toContain("<");
+
+      process.env.OPENAI_APPS_CHALLENGE = "portal-token-value";
+      const present = await fetch(`${url}/.well-known/openai-apps-challenge`);
+      expect(present.status).toBe(200);
+      expect(present.headers.get("content-type")).toMatch(/text\/plain/);
+      expect(await present.text()).toBe("portal-token-value");
+
+      const privacy = await fetch(`${url}/privacy`);
+      expect(privacy.status).toBe(200);
+      expect(privacy.headers.get("content-type")).toMatch(/text\/html/);
+      const html = await privacy.text();
+      for (const section of [
+        "Effective October 5, 2026",
+        "Ouroboros Apps",
+        "Lawrence Hutchins",
+        "href=\"/support\"",
+        "Information we process",
+        "Why and where",
+        "Control and retention",
+        "Security and changes",
+        "do not sell scope records",
+        "ChatGPT",
+        "Claude",
+        "Gemini",
+        "Grok",
+        "Cursor",
+        "Supabase",
+        "Stripe",
+        "Google"
+      ]) {
+        expect(html).toContain(section);
+      }
+      expect(html).not.toMatch(/\$\d/);
+
+      const home = await fetch(`${url}/`);
+      const homeHtml = await home.text();
+      expect(homeHtml).toContain("Continue with Google");
+      expect(homeHtml).toContain('provider:"google"');
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_APPS_CHALLENGE;
+      else process.env.OPENAI_APPS_CHALLENGE = previous;
+    }
+  });
 });
