@@ -271,3 +271,9 @@ export function createApp(deps: ScopeDeps): Express {
 
   return app;
 }
+
+// Vercel Express builds this module and requires a default export that is the server.
+const runtimeDeps = defaultDeps();
+export const app = createApp(runtimeDeps);
+export default app;
+export { runtimeDeps };

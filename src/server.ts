@@ -1,10 +1,9 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createApp, defaultDeps } from "./app.js";
+import { app, runtimeDeps } from "./app.js";
 import { createScopeMcpServer } from "./scope-tools.js";
 import { useStdioTransport } from "./transport.js";
 
-const deps = defaultDeps();
-export const app = createApp(deps);
+export { app };
 export default app;
 export { useStdioTransport };
 
@@ -18,7 +17,7 @@ if (process.env.NODE_ENV !== "test") {
     else console.log(line);
   });
   if (stdio) {
-    const stdioServer = createScopeMcpServer({ userId: "", entitled: false, store: deps.store });
+    const stdioServer = createScopeMcpServer({ userId: "", entitled: false, store: runtimeDeps.store });
     await stdioServer.connect(new StdioServerTransport());
   }
 }
