@@ -3,13 +3,11 @@
   "name": "io.github.LAHutchins91/scope",
   "title": "Scope",
   "description": "Approved freelance scope, rates, deadlines, and change orders, shared with AI assistants over MCP.",
-  "version": "0.1.0",
-  "icons": [
-    {
-      "src": "https://raw.githubusercontent.com/LAHutchins91/scope-mcp/main/logo.jpg",
-      "mimeType": "image/jpeg"
-    }
-  ],
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/LAHutchins91/scope-mcp",
+    "source": "github"
+  },
   "remotes": [
     {
       "type": "streamable-http",
