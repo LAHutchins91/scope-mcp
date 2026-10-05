@@ -8,11 +8,27 @@ describe("packaging", () => {
   it("matches the Continuity registry, image, and maintainer list", () => {
     const glama = JSON.parse(read("glama.json")) as { maintainers: string[] };
     expect(glama.maintainers).toEqual(["LAHutchins91"]);
-    const server = JSON.parse(read("server.json")) as { name: string; version: string; websiteUrl?: string; remotes: Array<{ type: string; url: string }> };
+    const server = JSON.parse(read("server.json")) as {
+      name: string;
+      version: string;
+      websiteUrl?: string;
+      icons?: Array<{ src: string; mimeType?: string }>;
+      remotes: Array<{ type: string; url: string }>;
+    };
     expect(server.name).toBe("io.github.LAHutchins91/scope");
     expect(server.version).toBe(SCOPE_VERSION);
     expect(server.websiteUrl).toBeUndefined();
-    expect(server.remotes).toEqual([{ type: "streamable-http", url: "http://127.0.0.1:3000/mcp" }]);
+    expect(server.icons).toEqual([
+      {
+        src: "https://raw.githubusercontent.com/LAHutchins91/scope-mcp/main/logo.jpg",
+        mimeType: "image/jpeg",
+      },
+    ]);
+    expect(server.remotes).toEqual([{ type: "streamable-http", url: "https://scope-continuity2.vercel.app/mcp" }]);
+    const license = read("LICENSE");
+    expect(license.startsWith("MIT License\n")).toBe(true);
+    expect(license).toContain("Copyright (c) 2026 Lawrence Hutchins");
+    expect(readFileSync("logo.jpg").subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))).toBe(true);
     const docker = read("Dockerfile");
     expect(docker).toContain("FROM node:22-alpine AS build");
     expect(docker).toContain("USER node");
