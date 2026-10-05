@@ -9,7 +9,7 @@ import { validateMcpClaims } from "./mcp-claims.js";
 import { installPluginAuth } from "./plugin-auth.js";
 import { installPublicPages } from "./public-pages.js";
 import { createScopeMcpServer } from "./scope-tools.js";
-import { createFileScopeStore, defaultScopeDataPath, type ScopeStore } from "./scope-store.js";
+import { resolveScopeStore, type ScopeStore } from "./scope-store.js";
 import { SCOPE_VERSION } from "./version.js";
 
 export type AuthUser = { id: string; email?: string };
@@ -70,7 +70,7 @@ export function defaultDeps(): ScopeDeps {
     stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
     stripePriceMonthly: process.env.STRIPE_PRICE_MONTHLY ?? "",
     stripePriceYearly: process.env.STRIPE_PRICE_YEARLY ?? "",
-    store: createFileScopeStore(process.env.SCOPE_DATA_PATH ?? defaultScopeDataPath()),
+    store: resolveScopeStore(),
     authenticate: (req) => authenticateWithSupabase(req, supabaseUrl, supabaseAnonKey),
     validateClaims: (token, userId) => validateMcpClaims(token, userId, `${supabaseUrl}/auth/v1`, `${appBaseUrl}/mcp`)
   };
