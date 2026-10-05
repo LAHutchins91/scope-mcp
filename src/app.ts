@@ -80,6 +80,29 @@ function bearerChallenge(appBaseUrl: string): string {
   return `Bearer resource_metadata="${appBaseUrl}/.well-known/oauth-protected-resource/mcp"`;
 }
 
+const JSON_MEDIA = "application/json";
+const EVENT_STREAM_MEDIA = "text/event-stream";
+
+/**
+ * Streamable HTTP requires Accept to list both media types. Clients that send
+ * only one, a wildcard, or no Accept header still receive a JSON response.
+ */
+function ensureStreamableHttpAccept(req: Request, _res: Response, next: NextFunction): void {
+  const raw = req.headers.accept;
+  const accept = (Array.isArray(raw) ? raw.join(", ") : raw ?? "").trim();
+  const hasJson = accept.includes(JSON_MEDIA);
+  const hasEventStream = accept.includes(EVENT_STREAM_MEDIA);
+  if (hasJson && hasEventStream) {
+    next();
+    return;
+  }
+  const parts = accept.split(",").map((part) => part.trim()).filter(Boolean);
+  if (!hasJson) parts.push(JSON_MEDIA);
+  if (!hasEventStream) parts.push(EVENT_STREAM_MEDIA);
+  req.headers.accept = parts.join(", ");
+  next();
+}
+
 export function createApp(deps: ScopeDeps): Express {
   const app = express();
   app.disable("x-powered-by");
@@ -219,7 +242,7 @@ export function createApp(deps: ScopeDeps): Express {
     res.status(204).end();
   });
 
-  app.post("/mcp", async (req, res) => {
+  app.post("/mcp", ensureStreamableHttpAccept, async (req, res) => {
     if (!guardMcpOrigin(req, res)) return;
     if (!allowPublic(`mcp:${req.ip}`, 300, 60_000)) {
       return res.status(429).set("Retry-After", "60").json({ error: "Too many requests. Retry in one minute." });

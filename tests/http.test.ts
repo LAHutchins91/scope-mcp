@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import crypto from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
@@ -63,6 +63,46 @@ function mcpHeaders(origin?: string): Record<string, string> {
   };
 }
 
+function postMcp(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown
+): Promise<{ status: number; payload: unknown }> {
+  const payload = JSON.stringify(body);
+  const target = new URL(url);
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname,
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(payload),
+          ...headers
+        }
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          let parsed: unknown = text;
+          try {
+            parsed = text ? JSON.parse(text) : null;
+          } catch {
+            parsed = text;
+          }
+          resolve({ status: res.statusCode ?? 0, payload: parsed });
+        });
+      }
+    );
+    req.on("error", reject);
+    req.end(payload);
+  });
+}
+
 describe("HTTP MCP", () => {
   it("default-exports the Express app so Vercel can serve tools/list", async () => {
     expect(typeof scopeApp).toBe("function");
@@ -89,6 +129,33 @@ describe("HTTP MCP", () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { result: { tools: Array<{ name: string }> } };
     expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([...SCOPE_TOOL_NAMES].sort());
+  });
+
+  it("lists tools when Accept is missing or incomplete and still requires auth for tool calls", async () => {
+    const options = await deps();
+    const url = await listen(createApp(options));
+    const list = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    const accepts: Array<Record<string, string>> = [
+      { accept: "application/json" },
+      { accept: "*/*" },
+      { accept: "text/event-stream" },
+      {},
+      { accept: "application/json, text/event-stream" }
+    ];
+    for (const headers of accepts) {
+      const response = await postMcp(`${url}/mcp`, headers, list);
+      expect(response.status, JSON.stringify(headers)).toBe(200);
+      const body = response.payload as { result: { tools: Array<{ name: string }> } };
+      expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([...SCOPE_TOOL_NAMES].sort());
+    }
+
+    const anonymous = await postMcp(
+      `${url}/mcp`,
+      { accept: "application/json" },
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_engagements", arguments: {} } }
+    );
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.payload).toEqual({ error: SIGN_IN_REQUIRED });
   });
 
   it("requires OAuth and an active trial before a tool call", async () => {
