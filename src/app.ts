@@ -80,6 +80,29 @@ function bearerChallenge(appBaseUrl: string): string {
   return `Bearer resource_metadata="${appBaseUrl}/.well-known/oauth-protected-resource/mcp"`;
 }
 
+const STREAMABLE_JSON = "application/json";
+const STREAMABLE_SSE = "text/event-stream";
+
+function completeStreamableAccept(req: Request, _res: Response, next: NextFunction): void {
+  const raw = req.headers.accept;
+  const accept = Array.isArray(raw) ? raw.join(", ") : (raw ?? "");
+  if (accept.includes(STREAMABLE_JSON) && accept.includes(STREAMABLE_SSE)) {
+    next();
+    return;
+  }
+  const parts = accept.split(",").map((part) => part.trim()).filter(Boolean);
+  if (!accept.includes(STREAMABLE_JSON)) parts.push(STREAMABLE_JSON);
+  if (!accept.includes(STREAMABLE_SSE)) parts.push(STREAMABLE_SSE);
+  const value = parts.join(", ");
+  req.headers.accept = value;
+  const rawHeaders = req.rawHeaders;
+  for (let index = rawHeaders.length - 2; index >= 0; index -= 2) {
+    if (rawHeaders[index]?.toLowerCase() === "accept") rawHeaders.splice(index, 2);
+  }
+  rawHeaders.push("Accept", value);
+  next();
+}
+
 export function createApp(deps: ScopeDeps): Express {
   const app = express();
   app.disable("x-powered-by");
@@ -219,7 +242,8 @@ export function createApp(deps: ScopeDeps): Express {
     res.status(204).end();
   });
 
-  app.post("/mcp", async (req, res) => {
+  // Streamable HTTP returns 406 unless Accept lists both types, including for a JSON body.
+  app.post("/mcp", completeStreamableAccept, async (req, res) => {
     if (!guardMcpOrigin(req, res)) return;
     if (!allowPublic(`mcp:${req.ip}`, 300, 60_000)) {
       return res.status(429).set("Retry-After", "60").json({ error: "Too many requests. Retry in one minute." });
