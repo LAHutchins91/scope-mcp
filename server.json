@@ -3,11 +3,18 @@
   "name": "io.github.LAHutchins91/scope",
   "title": "Scope",
   "description": "Approved freelance scope, rates, deadlines, and change orders, shared with AI assistants over MCP.",
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "websiteUrl": "https://scope-continuity2.vercel.app",
   "repository": {
     "url": "https://github.com/LAHutchins91/scope-mcp",
     "source": "github"
   },
+  "icons": [
+    {
+      "src": "https://scope-continuity2.vercel.app/logo.jpg",
+      "mimeType": "image/jpeg"
+    }
+  ],
   "remotes": [
     {
       "type": "streamable-http",
