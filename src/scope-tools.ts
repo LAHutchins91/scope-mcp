@@ -150,7 +150,7 @@ export function createScopeMcpServer(options: { userId: string; entitled: boolea
     "save_deadline",
     "Set or move the deadline for one scope item. The date is a calendar day in YYYY-MM-DD form.",
     { engagementId: id, scopeItemId: id, dueOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) },
-    write,
+    { ...write, destructiveHint: true },
     async (args) => options.store.saveDeadline(options.userId, {
       engagementId: args.engagementId as string,
       scopeItemId: args.scopeItemId as string,
@@ -162,7 +162,7 @@ export function createScopeMcpServer(options: { userId: string; entitled: boolea
     "approve_scope",
     "Mark the current draft as the approved scope. Pass confirmed true only after the freelancer explicitly approves the current items, rates, and deadlines.",
     { engagementId: id, confirmed: z.literal(true) },
-    { ...write, idempotentHint: true },
+    { ...write, destructiveHint: true, idempotentHint: true },
     async ({ engagementId }) => options.store.approveScope(options.userId, engagementId as string)
   );
 
