@@ -8,7 +8,7 @@ Sign in with your Scope account when the assistant opens OAuth. Do not paste an 
 
 Scope tools need Pro or an active trial. A new subscription includes a 14-day trial. This page does not list an amount. Checkout shows the billing interval and payment terms.
 
-There is no hosted production domain in this repository. Run the server yourself and use the base URL you configure. The default MCP address is `http://127.0.0.1:3000/mcp`.
+Run the server yourself and use the base URL you configure. The default local MCP address is `http://127.0.0.1:3000/mcp`.
 
 ## What the assistant can do
 
@@ -52,7 +52,7 @@ claude mcp add --transport http scope http://127.0.0.1:3000/mcp
 
 Do not pass an Authorization header. Other clients use the same address, choose OAuth, and leave client id and secret empty. Steps for ChatGPT, Claude, Gemini, Grok, and Cursor are on the connect page at `/connect`.
 
-Registry metadata for this server is in `server.json` (`io.github.LAHutchins91/scope`). The remote URL there is the local listener, not a deployed host.
+Registry metadata for this server is in `server.json` (`io.github.LAHutchins91/scope`). The public remote URL there is `https://scope-continuity2.vercel.app/mcp`.
 
 ## Run
 
