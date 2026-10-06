@@ -17,10 +17,10 @@ describe("packaging", () => {
     };
     expect(server.name).toBe("io.github.LAHutchins91/scope");
     expect(server.version).toBe(SCOPE_VERSION);
-    expect(server.websiteUrl).toBeUndefined();
+    expect(server.websiteUrl).toBe("https://scope-continuity2.vercel.app");
     expect(server.icons).toEqual([
       {
-        src: "https://raw.githubusercontent.com/LAHutchins91/scope-mcp/main/logo.jpg",
+        src: "https://scope-continuity2.vercel.app/logo.jpg",
         mimeType: "image/jpeg",
       },
     ]);
