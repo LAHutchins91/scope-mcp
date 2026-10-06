@@ -3,7 +3,7 @@ export const TRIAL_PERIOD_DAYS = 14;
 
 export const SIGN_IN_REQUIRED = "Sign in to Scope to use scope tools.";
 
-export const PRO_REQUIRED = "A Scope Pro subscription or active trial is required.";
+export const PRO_REQUIRED = "This Scope account does not currently include access to Scope tools. Check that you connected the intended account.";
 
 export const PUBLIC_MCP_METHODS = new Set([
   "initialize",
