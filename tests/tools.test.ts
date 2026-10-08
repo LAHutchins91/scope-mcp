@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PRO_REQUIRED, SIGN_IN_REQUIRED } from "../src/access.js";
+import { INVALID_CURRENCY, INVALID_RATE_CODE } from "../src/scope-policy.js";
 import { createFileScopeStore, type ScopeStore } from "../src/scope-store.js";
 import { SCOPE_TOOL_NAMES, createScopeMcpServer } from "../src/scope-tools.js";
 
@@ -106,5 +107,145 @@ describe("scope tools", () => {
     const read = await client.callTool({ name: "get_approved_record", arguments: { engagementId } });
     expect(textOf(read)).toContain("Do not invent a discount");
     expect(JSON.parse(textOf(read)).rates[0].amountMinor).toBe(7000);
+  });
+
+  it("accepts rate-code case variants, lists allowed values, and finds the saved rate", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "scope-"));
+    const client = await connect({ userId: "user-1", entitled: true, store: createFileScopeStore(path.join(dir, "scope.json")) });
+    const created = await client.callTool({
+      name: "create_engagement",
+      arguments: { clientName: "Harbor Dental", title: "Website redesign", currency: "usd" }
+    });
+    expect(created.isError).toBeFalsy();
+    const engagement = JSON.parse(textOf(created)).engagement as { id: string; currency: string };
+    expect(engagement.currency).toBe("USD");
+    const engagementId = engagement.id;
+    await client.callTool({
+      name: "save_scope_item",
+      arguments: { engagementId, title: "Homepage design", description: "One homepage design with two revision rounds." }
+    });
+
+    const upper = await client.callTool({
+      name: "save_rate",
+      arguments: { engagementId, code: "DAY", label: "Design and build day rate", amountMinor: 65000, unit: "DAY" }
+    });
+    expect(upper.isError).toBeFalsy();
+    const saved = JSON.parse(textOf(upper)) as { id: string; code: string; unit: string; label: string };
+    expect(saved.code).toBe("day");
+    expect(saved.unit).toBe("day");
+    expect(saved.label).toBe("Design and build day rate");
+
+    const mixed = await client.callTool({
+      name: "save_rate",
+      arguments: { engagementId, code: "Day", label: "Design and build day rate", amountMinor: 70000, unit: "Day" }
+    });
+    expect(mixed.isError).toBeFalsy();
+    const updated = JSON.parse(textOf(mixed)) as { id: string; code: string; amountMinor: number };
+    expect(updated.id).toBe(saved.id);
+    expect(updated.code).toBe("day");
+    expect(updated.amountMinor).toBe(70000);
+
+    const invalid = await client.callTool({
+      name: "save_rate",
+      arguments: { engagementId, code: "DAY RATE", label: "Bad", amountMinor: 100, unit: "day" }
+    });
+    expect(invalid.isError).toBe(true);
+    expect(textOf(invalid)).toContain(INVALID_RATE_CODE);
+    expect(textOf(invalid)).toContain("Allowed values");
+    expect(textOf(invalid)).toContain("a-z");
+    expect(textOf(invalid)).toContain("0-9");
+    expect(textOf(invalid)).toContain("hyphen");
+
+    const badUnit = await client.callTool({
+      name: "save_rate",
+      arguments: { engagementId, code: "week", label: "Week", amountMinor: 100, unit: "WEEK" }
+    });
+    expect(badUnit.isError).toBe(true);
+    expect(textOf(badUnit)).toContain("hour");
+    expect(textOf(badUnit)).toContain("day");
+    expect(textOf(badUnit)).toContain("fixed");
+
+    const badCurrency = await client.callTool({
+      name: "create_engagement",
+      arguments: { clientName: "Ada", title: "Audit", currency: "US1" }
+    });
+    expect(badCurrency.isError).toBe(true);
+    expect(textOf(badCurrency)).toContain(INVALID_CURRENCY);
+
+    await client.callTool({ name: "approve_scope", arguments: { engagementId, confirmed: true } });
+    const order = await client.callTool({
+      name: "file_change_order",
+      arguments: {
+        engagementId,
+        kind: "DISCOUNT_RATE",
+        summary: "Client asked for a lower day rate.",
+        rateCode: "DAY",
+        amountMinor: 60000
+      }
+    });
+    expect(order.isError).toBeFalsy();
+    const filed = JSON.parse(textOf(order)) as { id: string; rateCode: string; kind: string };
+    expect(filed.kind).toBe("discount_rate");
+    expect(filed.rateCode).toBe("day");
+
+    const read = await client.callTool({ name: "get_approved_record", arguments: { engagementId } });
+    const record = JSON.parse(textOf(read)) as {
+      rates: Array<{ code: string; amountMinor: number }>;
+      proposedChangeOrders: Array<{ rateCode: string }>;
+    };
+    expect(record.rates.map((rate) => rate.code)).toEqual(["day"]);
+    expect(record.rates[0]?.amountMinor).toBe(70000);
+    expect(record.proposedChangeOrders[0]?.rateCode).toBe("day");
+
+    const applied = await client.callTool({
+      name: "approve_change_order",
+      arguments: { engagementId, changeOrderId: filed.id, confirmed: true }
+    });
+    expect(JSON.parse(textOf(applied)).rates[0].amountMinor).toBe(60000);
+
+    const badKind = await client.callTool({
+      name: "file_change_order",
+      arguments: { engagementId, kind: "nope", summary: "Not a real kind." }
+    });
+    expect(badKind.isError).toBe(true);
+    for (const allowed of ["add_work", "discount_rate", "add_rate", "move_deadline"]) {
+      expect(textOf(badKind)).toContain(allowed);
+    }
+  });
+
+  it("keeps published tool names, descriptions, annotations, and schemas", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "scope-"));
+    const client = await connect({ userId: "", entitled: false, store: createFileScopeStore(path.join(dir, "scope.json")) });
+    const listed = await client.listTools();
+    const byName = Object.fromEntries(listed.tools.map((tool) => [tool.name, tool]));
+    const saveRate = byName.save_rate;
+    const fileOrder = byName.file_change_order;
+    const createEngagement = byName.create_engagement;
+    expect(saveRate?.description).toBe(
+      "Set a draft rate, or update an approved rate without lowering it or changing its unit. A lower amount is a discount and is refused. A new rate code after approval is refused. Use file_change_order and approve_change_order for those."
+    );
+    expect(saveRate?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false
+    });
+    expect(fileOrder?.description).toBe(
+      "Record a proposed change order. This does not change scope, rates, or deadlines. kind add_work requires workTitle and workDescription. kind discount_rate requires rateCode and a lower amountMinor. kind add_rate requires rateCode, rateLabel, amountMinor, and unit. kind move_deadline requires scopeItemId and dueOn."
+    );
+    expect(createEngagement?.description).toBe(
+      "Create a draft engagement. Draft terms are not an approved commitment until approve_scope."
+    );
+    const properties = (tool: (typeof listed.tools)[number] | undefined) =>
+      (tool?.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+    expect(properties(saveRate).code).toEqual({ type: "string", minLength: 1, maxLength: 40 });
+    expect(properties(saveRate).unit).toEqual({ type: "string", enum: ["hour", "day", "fixed"] });
+    expect(properties(fileOrder).kind).toEqual({
+      type: "string",
+      enum: ["add_work", "discount_rate", "add_rate", "move_deadline"]
+    });
+    expect(properties(fileOrder).rateCode).toEqual({ type: "string", minLength: 1, maxLength: 40 });
+    expect(properties(fileOrder).unit).toEqual({ type: "string", enum: ["hour", "day", "fixed"] });
+    expect(properties(createEngagement).currency).toEqual({ type: "string", pattern: "^[A-Z]{3}$" });
   });
 });

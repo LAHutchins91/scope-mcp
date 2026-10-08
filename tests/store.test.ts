@@ -1,8 +1,17 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { REFUSED_DISCOUNT, REFUSED_NEW_RATE, REFUSED_NEW_WORK, REFUSED_RENAME } from "../src/scope-policy.js";
+import {
+  INVALID_CHANGE_KIND,
+  INVALID_CURRENCY,
+  INVALID_RATE_CODE,
+  INVALID_RATE_UNIT,
+  REFUSED_DISCOUNT,
+  REFUSED_NEW_RATE,
+  REFUSED_NEW_WORK,
+  REFUSED_RENAME
+} from "../src/scope-policy.js";
 import { createFileScopeStore } from "../src/scope-store.js";
 
 async function store() {
@@ -140,5 +149,128 @@ describe("scope store", () => {
     const listed = await second.listEngagements("user-1", 0);
     expect(listed.engagements[0]?.id).toBe(engagement.id);
     expect(await second.listEngagements("user-2", 0)).toEqual({ engagements: [], nextOffset: null });
+  });
+
+  it("normalizes rate codes and finds a rate saved in another case", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "scope-"));
+    const file = path.join(dir, "scope.json");
+    const saved = createFileScopeStore(file);
+    const engagement = await saved.createEngagement("user-1", {
+      clientName: "Harbor Dental",
+      title: "Website redesign",
+      currency: " gbp "
+    });
+    expect(engagement.currency).toBe("GBP");
+    await saved.saveScopeItem("user-1", {
+      engagementId: engagement.id,
+      title: "Homepage",
+      description: "One responsive homepage."
+    });
+    const upper = await saved.saveRate("user-1", {
+      engagementId: engagement.id,
+      code: "DAY",
+      label: "Design and build day rate",
+      amountMinor: 65000,
+      unit: "DAY"
+    });
+    expect(upper.code).toBe("day");
+    expect(upper.unit).toBe("day");
+
+    const mixed = await saved.saveRate("user-1", {
+      engagementId: engagement.id,
+      code: "  Day  ",
+      label: "Design and build day rate",
+      amountMinor: 70000,
+      unit: "Day"
+    });
+    expect(mixed.id).toBe(upper.id);
+    expect(mixed.code).toBe("day");
+    expect(mixed.amountMinor).toBe(70000);
+
+    const hyphenated = await saved.saveRate("user-1", {
+      engagementId: engagement.id,
+      code: "Build-Day",
+      label: "Build day",
+      amountMinor: 80000,
+      unit: "hour"
+    });
+    expect(hyphenated.code).toBe("build-day");
+    const again = await saved.saveRate("user-1", {
+      engagementId: engagement.id,
+      code: "BUILD-DAY",
+      label: "Build day",
+      amountMinor: 81000,
+      unit: "HOUR"
+    });
+    expect(again.id).toBe(hyphenated.id);
+    expect(again.code).toBe("build-day");
+
+    await expect(saved.saveRate("user-1", {
+      engagementId: engagement.id,
+      code: "DAY RATE",
+      label: "Bad",
+      amountMinor: 100,
+      unit: "day"
+    })).rejects.toThrow(INVALID_RATE_CODE);
+    await expect(saved.saveRate("user-1", {
+      engagementId: engagement.id,
+      code: "week",
+      label: "Week",
+      amountMinor: 100,
+      unit: "WEEK"
+    })).rejects.toThrow(INVALID_RATE_UNIT);
+    await expect(saved.createEngagement("user-1", {
+      clientName: "Ada",
+      title: "Audit",
+      currency: "US1"
+    })).rejects.toThrow(INVALID_CURRENCY);
+
+    const raw = JSON.parse(await readFile(file, "utf8")) as {
+      engagements: Record<string, Array<{ rates: Array<{ code: string }> }>>;
+    };
+    const stored = raw.engagements["user-1"]?.[0];
+    expect(stored).toBeTruthy();
+    const dayRate = stored?.rates.find((rate) => rate.code === "day");
+    expect(dayRate).toBeTruthy();
+    if (dayRate) dayRate.code = "DAY";
+    await writeFile(file, JSON.stringify(raw));
+
+    const reloaded = createFileScopeStore(file);
+    await reloaded.approveScope("user-1", engagement.id);
+    const proposed = await reloaded.fileChangeOrder("user-1", {
+      engagementId: engagement.id,
+      kind: "DISCOUNT_RATE",
+      summary: "Client asked for a lower day rate.",
+      rateCode: "day",
+      amountMinor: 60000
+    });
+    expect(proposed.rateCode).toBe("day");
+    expect(proposed.kind).toBe("discount_rate");
+    const before = await reloaded.getRecord("user-1", engagement.id);
+    expect(before.rates.filter((rate) => rate.code === "day")).toHaveLength(1);
+    expect(before.rates.find((rate) => rate.code === "day")?.amountMinor).toBe(70000);
+
+    const applied = await reloaded.approveChangeOrder("user-1", engagement.id, proposed.id);
+    expect(applied.rates.find((rate) => rate.code === "day")?.amountMinor).toBe(60000);
+
+    const added = await reloaded.fileChangeOrder("user-1", {
+      engagementId: engagement.id,
+      kind: "Add_Rate",
+      summary: "Add a weekend rate.",
+      rateCode: "Weekend",
+      rateLabel: "Weekend",
+      amountMinor: 90000,
+      unit: "FIXED"
+    });
+    expect(added.rateCode).toBe("weekend");
+    expect(added.unit).toBe("fixed");
+    const withRate = await reloaded.approveChangeOrder("user-1", engagement.id, added.id);
+    expect(withRate.rates.find((rate) => rate.code === "weekend")?.unit).toBe("fixed");
+
+    await expect(reloaded.fileChangeOrder("user-1", {
+      engagementId: engagement.id,
+      kind: "nope",
+      summary: "Not a real kind."
+    })).rejects.toThrow(INVALID_CHANGE_KIND);
   });
 });

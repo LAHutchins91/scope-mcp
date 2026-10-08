@@ -1,16 +1,32 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { PRO_REQUIRED, SIGN_IN_REQUIRED } from "./access.js";
-import { ScopeRefusal, ScopeUserError } from "./scope-policy.js";
+import { CHANGE_KINDS, INVALID_CURRENCY, RATE_UNITS, ScopeRefusal, ScopeUserError } from "./scope-policy.js";
 import type { ScopeStore } from "./scope-store.js";
 import { SCOPE_VERSION } from "./version.js";
+
+// Accept case variants during parse. Published enum values stay the same.
+function acceptEnumCase<T extends [string, ...string[]]>(schema: z.ZodEnum<T>): z.ZodEnum<T> {
+  const canonical = new Map(schema.options.map((value) => [value.toLowerCase(), value]));
+  const original = schema._parse.bind(schema);
+  schema._parse = (input) => {
+    if (typeof input.data === "string") {
+      const match = canonical.get(input.data.trim().toLowerCase());
+      if (match !== undefined) input.data = match;
+    }
+    return original(input);
+  };
+  return schema;
+}
 
 const id = z.string().uuid();
 const short = z.string().trim().min(1).max(200);
 const text = z.string().trim().min(1).max(12000);
 const code = z.string().trim().min(1).max(40);
 const amount = z.number().int().positive().max(1_000_000_000_000);
-const unit = z.enum(["hour", "day", "fixed"]);
+const unit = acceptEnumCase(z.enum(RATE_UNITS));
+const changeKind = acceptEnumCase(z.enum(CHANGE_KINDS));
+const currency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, INVALID_CURRENCY);
 const read = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 
@@ -97,7 +113,7 @@ export function createScopeMcpServer(options: { userId: string; entitled: boolea
       clientName: short,
       title: short,
       summary: z.string().trim().max(4000).optional(),
-      currency: z.string().regex(/^[A-Z]{3}$/)
+      currency
     },
     write,
     async (args) => {
@@ -171,7 +187,7 @@ export function createScopeMcpServer(options: { userId: string; entitled: boolea
     "Record a proposed change order. This does not change scope, rates, or deadlines. kind add_work requires workTitle and workDescription. kind discount_rate requires rateCode and a lower amountMinor. kind add_rate requires rateCode, rateLabel, amountMinor, and unit. kind move_deadline requires scopeItemId and dueOn.",
     {
       engagementId: id,
-      kind: z.enum(["add_work", "discount_rate", "add_rate", "move_deadline"]),
+      kind: changeKind,
       summary: z.string().trim().min(1).max(1000),
       workTitle: short.optional(),
       workDescription: text.optional(),
