@@ -1,9 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.LAHutchins91/scope",
-  "title": "Scope",
-  "description": "Approved freelance scope, rates, deadlines, and change orders for AI assistants.",
-  "version": "1.0.2",
+  "title": "Scope by Ouroboros Apps",
+  "description": "Freelance scope of work, rates, deadlines, and change orders for AI assistants",
+  "version": "1.0.3",
   "websiteUrl": "https://ouroborosapps.com/docs/scope",
   "repository": {
     "url": "https://github.com/LAHutchins91/scope-mcp",
