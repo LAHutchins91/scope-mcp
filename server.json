@@ -2,9 +2,9 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.LAHutchins91/scope",
   "title": "Scope",
-  "description": "Approved freelance scope, rates, deadlines, and change orders, shared with AI assistants over MCP.",
-  "version": "0.1.0",
-  "websiteUrl": "https://scope-continuity2.vercel.app",
+  "description": "Approved freelance scope, rates, deadlines, and change orders for AI assistants.",
+  "version": "1.0.2",
+  "websiteUrl": "https://ouroborosapps.com/docs/scope",
   "repository": {
     "url": "https://github.com/LAHutchins91/scope-mcp",
     "source": "github"

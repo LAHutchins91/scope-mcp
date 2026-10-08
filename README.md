@@ -10,6 +10,13 @@ Scope tools need Pro or an active trial. A new subscription includes a 14-day tr
 
 Run the server yourself and use the base URL you configure. The default local MCP address is `http://127.0.0.1:3000/mcp`.
 
+## Hosted server
+
+- MCP server URL: `https://scope-continuity2.vercel.app/mcp` (Streamable HTTP, OAuth sign-in)
+- Docs: https://ouroborosapps.com/docs/scope
+- Status: early access. Paste the URL into Claude, Cursor, Grok, or ChatGPT developer mode.
+- Registry name: `io.github.LAHutchins91/scope`
+
 ## What the assistant can do
 
 After you approve the connection, the server exposes these tools:
