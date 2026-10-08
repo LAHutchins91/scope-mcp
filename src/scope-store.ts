@@ -3,17 +3,24 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  CHANGE_KINDS,
+  INVALID_CHANGE_KIND,
+  INVALID_CURRENCY,
+  INVALID_RATE_CODE,
+  INVALID_RATE_UNIT,
+  RATE_UNITS,
   RECORD_GUIDANCE,
   ScopeRefusal,
   ScopeUserError,
   assertNewScopeItem,
   assertRateWrite,
   assertScopeTitle,
+  type ChangeKind,
   type EngagementStatus,
   type RateUnit
 } from "./scope-policy.js";
 
-export type { EngagementStatus, RateUnit };
+export type { ChangeKind, EngagementStatus, RateUnit };
 
 const MAX_ENGAGEMENTS = 50;
 const MAX_ITEMS = 200;
@@ -45,8 +52,6 @@ export type Deadline = {
   dueOn: string;
   updatedAt: string;
 };
-
-export type ChangeKind = "add_work" | "discount_rate" | "add_rate" | "move_deadline";
 
 export type ChangeOrder = {
   id: string;
@@ -138,7 +143,7 @@ export type SaveRateInput = {
   code: string;
   label: string;
   amountMinor: number;
-  unit: RateUnit;
+  unit: string;
 };
 
 export type SaveDeadlineInput = {
@@ -149,14 +154,14 @@ export type SaveDeadlineInput = {
 
 export type FileChangeOrderInput = {
   engagementId: string;
-  kind: ChangeKind;
+  kind: string;
   summary: string;
   workTitle?: string;
   workDescription?: string;
   rateCode?: string;
   rateLabel?: string;
   amountMinor?: number;
-  unit?: RateUnit;
+  unit?: string;
   scopeItemId?: string;
   dueOn?: string;
 };
@@ -298,14 +303,19 @@ function cleanText(value: string, label: string, max: number): string {
 }
 
 function cleanCurrency(value: string): string {
-  if (!/^[A-Z]{3}$/.test(value)) throw new ScopeUserError("Currency must be a three-letter code.");
-  return value;
+  const currency = value.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) throw new ScopeUserError(INVALID_CURRENCY);
+  return currency;
+}
+
+function normalizeRateCode(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function cleanCode(value: string): string {
-  const code = value.trim();
+  const code = normalizeRateCode(value);
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(code) || code.length > 40) {
-    throw new ScopeUserError("Rate code must be a short lowercase slug.");
+    throw new ScopeUserError(INVALID_RATE_CODE);
   }
   return code;
 }
@@ -318,8 +328,22 @@ function assertAmount(amount: number): number {
 }
 
 function assertUnit(unit: string): RateUnit {
-  if (unit !== "hour" && unit !== "day" && unit !== "fixed") throw new ScopeUserError("Rate unit must be hour, day, or fixed.");
-  return unit;
+  const normalized = unit.trim().toLowerCase();
+  const match = RATE_UNITS.find((value) => value === normalized);
+  if (!match) throw new ScopeUserError(INVALID_RATE_UNIT);
+  return match;
+}
+
+function assertKind(kind: string): ChangeKind {
+  const normalized = kind.trim().toLowerCase();
+  const match = CHANGE_KINDS.find((value) => value === normalized);
+  if (!match) throw new ScopeUserError(INVALID_CHANGE_KIND);
+  return match;
+}
+
+function findRate(rates: Rate[], code: string): Rate | undefined {
+  const normalized = normalizeRateCode(code);
+  return rates.find((row) => normalizeRateCode(row.code) === normalized);
 }
 
 function assertDate(value: string): string {
@@ -502,7 +526,7 @@ export function createPersistedScopeStore(backend: StoreBackend): ScopeStore {
         const label = cleanText(input.label, "Label", 200);
         const amountMinor = assertAmount(input.amountMinor);
         const unit = assertUnit(input.unit);
-        const existing = engagement.rates.find((row) => row.code === code);
+        const existing = findRate(engagement.rates, code);
         assertRateWrite({
           status: engagement.status,
           existingUnit: existing?.unit,
@@ -512,6 +536,7 @@ export function createPersistedScopeStore(backend: StoreBackend): ScopeStore {
         });
         const stamp = nowIso();
         if (existing) {
+          existing.code = code;
           existing.label = label;
           existing.amountMinor = amountMinor;
           existing.unit = unit;
@@ -564,10 +589,11 @@ export function createPersistedScopeStore(backend: StoreBackend): ScopeStore {
           throw new ScopeUserError("Approve the scope before filing a change order.");
         }
         if (engagement.changeOrders.length >= MAX_CHANGE_ORDERS) throw new ScopeUserError("Change order limit reached.");
+        const kind = assertKind(input.kind);
         const summary = cleanText(input.summary, "Summary", 1000);
         const order: ChangeOrder = {
           id: randomUUID(),
-          kind: input.kind,
+          kind,
           status: "proposed",
           summary,
           workTitle: null,
@@ -582,35 +608,38 @@ export function createPersistedScopeStore(backend: StoreBackend): ScopeStore {
           createdAt: nowIso(),
           approvedAt: null
         };
-        if (input.kind === "add_work") {
+        if (kind === "add_work") {
           order.workTitle = cleanText(input.workTitle ?? "", "Work title", 200);
           order.workDescription = cleanText(input.workDescription ?? "", "Work description", 12000);
           if (engagement.items.some((item) => item.title === order.workTitle)) {
             throw new ScopeUserError("That work is already in the approved scope.");
           }
-        } else if (input.kind === "discount_rate") {
-          order.rateCode = cleanCode(input.rateCode ?? "");
+        } else if (kind === "discount_rate") {
+          const rateCode = cleanCode(input.rateCode ?? "");
+          order.rateCode = rateCode;
           order.amountMinor = assertAmount(input.amountMinor ?? Number.NaN);
-          const rate = engagement.rates.find((row) => row.code === order.rateCode);
+          const rate = findRate(engagement.rates, rateCode);
           if (!rate) throw new ScopeUserError("Rate not found");
           if (order.amountMinor >= rate.amountMinor) {
             throw new ScopeUserError("That change order does not lower the approved rate.");
           }
-        } else if (input.kind === "add_rate") {
-          order.rateCode = cleanCode(input.rateCode ?? "");
+          rate.code = rateCode;
+        } else if (kind === "add_rate") {
+          const rateCode = cleanCode(input.rateCode ?? "");
+          order.rateCode = rateCode;
           order.rateLabel = cleanText(input.rateLabel ?? "", "Label", 200);
           order.amountMinor = assertAmount(input.amountMinor ?? Number.NaN);
           order.unit = assertUnit(input.unit ?? "");
-          if (engagement.rates.some((row) => row.code === order.rateCode)) {
+          if (findRate(engagement.rates, rateCode)) {
             throw new ScopeUserError("A rate with that code already exists.");
           }
-        } else if (input.kind === "move_deadline") {
+        } else if (kind === "move_deadline") {
           if (!input.scopeItemId) throw new ScopeUserError("Scope item not found");
           findItem(engagement, input.scopeItemId);
           order.scopeItemId = input.scopeItemId;
           order.dueOn = assertDate(input.dueOn ?? "");
         } else {
-          throw new ScopeUserError("Unknown change order kind.");
+          throw new ScopeUserError(INVALID_CHANGE_KIND);
         }
         engagement.changeOrders.unshift(order);
         engagement.updatedAt = order.createdAt;
@@ -639,27 +668,35 @@ export function createPersistedScopeStore(backend: StoreBackend): ScopeStore {
             updatedAt: stamp
           });
         } else if (order.kind === "discount_rate") {
-          const rate = engagement.rates.find((row) => row.code === order.rateCode);
-          if (!rate || order.amountMinor === null) throw new ScopeUserError("Rate not found");
+          if (!order.rateCode || order.amountMinor === null) throw new ScopeUserError("Rate not found");
+          const rateCode = cleanCode(order.rateCode);
+          order.rateCode = rateCode;
+          const rate = findRate(engagement.rates, rateCode);
+          if (!rate) throw new ScopeUserError("Rate not found");
           if (order.amountMinor >= rate.amountMinor) {
             throw new ScopeUserError("That change order does not lower the approved rate.");
           }
+          rate.code = rateCode;
           rate.amountMinor = order.amountMinor;
           rate.updatedAt = stamp;
         } else if (order.kind === "add_rate") {
           if (!order.rateCode || !order.rateLabel || order.amountMinor === null || !order.unit) {
             throw new ScopeUserError("Rate not found");
           }
-          if (engagement.rates.some((row) => row.code === order.rateCode)) {
+          const rateCode = cleanCode(order.rateCode);
+          order.rateCode = rateCode;
+          const unit = assertUnit(order.unit);
+          order.unit = unit;
+          if (findRate(engagement.rates, rateCode)) {
             throw new ScopeUserError("A rate with that code already exists.");
           }
           if (engagement.rates.length >= MAX_RATES) throw new ScopeUserError("Rate limit reached.");
           engagement.rates.push({
             id: randomUUID(),
-            code: order.rateCode,
+            code: rateCode,
             label: order.rateLabel,
             amountMinor: order.amountMinor,
-            unit: order.unit,
+            unit,
             createdAt: stamp,
             updatedAt: stamp
           });
