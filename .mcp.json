@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "scope": {
+      "url": "https://scope-continuity2.vercel.app/mcp"
+    }
+  }
+}
