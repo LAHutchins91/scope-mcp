@@ -11,6 +11,7 @@ import { installPublicPages } from "./public-pages.js";
 import { createScopeMcpServer } from "./scope-tools.js";
 import { resolveScopeStore, type ScopeStore } from "./scope-store.js";
 import { SCOPE_VERSION } from "./version.js";
+import { isOwnCheckout, isOwnSubscription } from "./stripe-scope.js";
 
 export type AuthUser = { id: string; email?: string };
 
@@ -126,13 +127,14 @@ export function createApp(deps: ScopeDeps): Express {
       const event = readStripeEvent(req.body, signature, deps.stripeWebhookSecret);
       const object = event.data.object;
       const userId = scopeUserId(object);
-      if (userId && event.type === "checkout.session.completed") {
+      // Every app on the shared Stripe account receives every event; act only on our own.
+      if (userId && event.type === "checkout.session.completed" && isOwnCheckout(object, deps.appBaseUrl)) {
         await deps.store.updateProfile(userId, {
           stripeCustomerId: typeof object.customer === "string" ? object.customer : null,
           stripeSubscriptionId: typeof object.subscription === "string" ? object.subscription : null
         });
       }
-      if (userId && ["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.type)) {
+      if (userId && ["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(event.type) && isOwnSubscription(object, [deps.stripePriceMonthly, deps.stripePriceYearly])) {
         await deps.store.updateProfile(userId, subscriptionPatch(object));
       }
       res.json({ received: true });
